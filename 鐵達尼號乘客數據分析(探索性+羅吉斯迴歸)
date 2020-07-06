@@ -1,0 +1,122 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import re
+from sklearn import preprocessing, linear_model
+
+titanic = pd.read_csv("titanic_data.csv")
+
+# 顯示(筆數,欄數)
+print(titanic.shape)
+# 顯示前5筆
+print(titanic.head())
+# 顯示統計摘要資訊
+print(titanic.describe())
+# 顯示資料集資訊
+print(titanic.info())
+
+# 檢查PassengerId欄位是否是唯一值
+print(np.unique(titanic["PassengerId"].values).size)
+# 指定DataFrame物件的索引欄位
+titanic.set_index(["PassengerId"], inplace=True)
+print(titanic.head())
+# 新增SexCode欄位
+titanic["SexCode"] = np.where(titanic["Sex"]=="female", 1, 0)
+print(titanic.head())
+# PClass欄位
+class_mapping = {"1st": 1,
+                 "2nd": 2,
+                 "3rd": 3}
+titanic["PClass"] = titanic["PClass"].map(class_mapping)
+print(titanic.head())
+# 檢查Age欄位的遺漏值有多少
+print(titanic.isnull().sum())
+print(sum(titanic["Age"].isnull()))
+# 補值成平均值
+avg_age = titanic["Age"].mean()
+titanic["Age"].fillna(avg_age, inplace=True)
+print(sum(titanic["Age"].isnull()))
+# 顯示性別人數和計算平均年齡
+print("性別人數:")
+print(titanic["Sex"].groupby(titanic["Sex"]).size())
+print(titanic.groupby("Sex")["Age"].mean())
+# 處理姓名欄位
+#\,視逗號不受正規法影響
+#\s 空白
+#\S 非空白
+#() 找括號內的相符
+#例:Warren, Mr Charles William
+patt = re.compile(r"\,\s(\S+\s)") 
+titles = []
+#讀取每一列資料
+for index, row in titanic.iterrows():
+    m = re.search(patt, row["Name"])
+    if m is None:
+        title = "Mrs" if row["SexCode"] == 1 else "Mr"
+    else:
+        title = m.group(0)
+        title = re.sub(r",", "", title).strip()
+        if title[0] != "M":
+            title = "Mrs" if row["SexCode"] == 1 else "Mr"
+        else:
+           if title[0] == "M" and title[1] == "a":
+            title = "Mrs" if row["SexCode"] == 1 else "Mr"
+    titles.append(title)
+titanic["Title"] = titles
+print("Title類別:")
+print(np.unique(titles).shape[0], np.unique(titles))
+# 修正類別的錯誤
+titanic["Title"] = titanic["Title"].replace("Mlle","Miss")
+titanic["Title"] = titanic["Title"].replace("Ms","Miss")  
+titanic.to_csv("titanic_pre.csv", encoding="utf8")
+#計算各類別人數及生存率
+print("Title人數:")
+print(titanic["Title"].groupby(titanic["Title"]).size())
+print("平均生存率:")
+print(titanic[["Title","Survived"]].groupby(titanic["Title"]).mean())
+#新增Died欄位
+titanic = pd.read_csv("titanic_pre.csv")
+titanic["Died"] = np.where(titanic["Survived"]==0, 1, 0)
+print(titanic.head())
+# 繪出直方圖的年齡分佈, 生存或死亡
+titanic["Age"].plot(kind="hist", bins=15)
+df = titanic[titanic.Survived == 0]
+df["Age"].plot(kind="hist", bins=15)
+df = titanic[titanic.Survived == 1]
+df["Age"].plot(kind="hist", bins=15)
+# 分類顯示Title欄位的生存和死亡數
+fig, axes = plt.subplots(nrows=1, ncols=2)
+df = titanic[["Survived","Died"]].groupby(titanic["Title"]).sum()
+df.plot(kind="bar", ax=axes[0])
+df = titanic[["Survived","Died"]].groupby(titanic["Title"]).mean()
+df.plot(kind="bar", ax=axes[1])
+# 分類顯示Sex欄位的生存和死亡數
+fig, axes = plt.subplots(nrows=1, ncols=2)
+df = titanic[["Survived","Died"]].groupby(titanic["Sex"]).sum()
+df.plot(kind="bar", ax=axes[0])
+df = titanic[["Survived","Died"]].groupby(titanic["Sex"]).mean()
+df.plot(kind="bar", ax=axes[1])
+# 分類顯示PClass欄位的生存和死亡數
+df = titanic[['Survived',"Died"]].groupby(titanic["PClass"]).sum()
+df.plot(kind="bar")
+df = titanic[['Survived',"Died"]].groupby(titanic["PClass"]).mean()
+df.plot(kind="bar")
+# 計算相關係數
+df = titanic.drop("PassengerId", axis=1)
+df = df.drop("Died", axis=1)
+df = df.drop("Title", axis=1)
+print(df.corr())
+df.to_csv("titanic_train.csv", encoding="utf8")
+#Logistic Regression
+X = pd.DataFrame([titanic["PClass"], 
+                  titanic["SexCode"]]).T
+y = titanic["Survived"]
+
+logistic = linear_model.LogisticRegression()
+logistic.fit(X, y)
+print("迴歸係數:", logistic.coef_)
+print("截距:", logistic.intercept_ )
+
+preds = logistic.predict(X)
+print(pd.crosstab(preds, titanic["Survived"]))
+print("預測正確率:", logistic.score(X, y))
