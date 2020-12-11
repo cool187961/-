@@ -1,0 +1,415 @@
+import xlwings as xw
+import pandas as pd
+import os
+#修改区
+day = "10"
+month = "12"
+
+yday = f"2020-{month}-{day}"
+ynote = month+day
+yyday = f"{yday} 00:00:00"
+nyday = f"{yday} 23:59:59"
+
+#路径
+phpath = r"C:\Users\User\Desktop\{}".format(ynote)
+twpath = r"C:\Users\User\Desktop\{}".format(ynote)
+
+#建立字典取代
+di = {"填入要取代的字串":"取代后字串"}
+
+#读取excel
+file = r"C:\Users\User\Desktop\{}.csv".format(ynote)    
+
+                      #以栏位作为index  #使用栏位                    #强制将栏位值固定资料形态
+df = pd.read_csv(file,index_col="序号",usecols=[0,1,3,5,8,9,10,11],converters={"账号":str})
+
+#总笔数
+allct = len(df) 
+
+#填补空值成""
+df[''].fillna("", inplace = True)
+
+#取代[(RMB)- ¥ ]28.00
+df['金额'] = df['金额'].map(lambda x: str(x)[9:])
+
+#转换回数值形态
+df["金额"] = pd.to_numeric(df.金额, errors='coerce')
+
+#总金额
+allmy = df["金额"].sum()
+
+#替代字典+未在字典保持原樣
+df[""] = df[""].map(di).fillna(df[""])
+
+#若字串包含条件则修改字串
+df.loc[df[""].str.contains("^a|^b|^c|^d", regex = True),""] = ""
+df.loc[df["备注"].str.contains("^", regex = True),""] = df[""]
+
+#值排序
+df.sort_values(by=["a","b"], inplace = True)
+
+#时间形态
+df["时间"] = pd.to_datetime(df["时间"])
+
+#排序栏位
+df = df[["a","b","c","d","e","f","g","h"]]
+
+#分别建立"一"and"二"资料集&计算资料笔数金额
+#非条件的资料
+dfup = df[df[""]!=""]
+upct = len(dfup)
+upmy = dfup["金额"].sum()
+
+dfdn = df[df[""]==""]
+dnct = len(dfdn)
+dnmy = dfdn["金额"].sum()
+
+#复制一份修改成其他
+dfup_detail = dfup.copy()
+
+#修改栏位值
+dfup_detail["账号"] = "'" + dfup_detail["账号"]
+
+#先建立空的dataframe
+d38 = pd.DataFrame(columns=["a","b"])
+
+#资料夹内的挡案名称
+phfilelist = os.listdir(phpath)
+
+#若挡案名称有在资料夹挡案名称内
+if "{}.xlsx".format(month) in os.listdir(phpath):
+
+    #新增至上面建立的DataFrame    
+    d38 = d38.append(pd.read_excel(phpath+r"\{}.xlsx".format(month),sheet_name="通过",usecols=[1,3],converters={'会员账号': str}),ignore_index=True)
+    
+#修改栏位名称
+d38.columns=["账号","金额"]
+
+#用lambda读取每列的值并修改
+d38["账号"] = d38["账号"].map(lambda x: "'" + str(x)) 
+
+#拆分至Excel不同Sheet:   
+# 获取拆分条件：去重
+up_list = dfup[''].unique()
+
+#以a活动为例
+#找出资料
+#pcon = dfup[dfup['活动'] == "a"]
+
+#vlookup金额
+#pcon = pd.merge(pcon,dfcon,left_on="账号",right_on="账号",how = "left")
+
+#插入金额栏位
+#pcon.insert(2,"金额1",pcon["金额"])
+#pcon.insert(3,"百分比",pcon["备注"])
+
+#去除不要的栏位
+#pcon.drop(["no1","no2","no3"], axis = 1, inplace = True)
+
+#建立错误DataFrame
+repeat = pd.DataFrame()
+
+#开启Excel
+wb = xw.Book(r'C:\Users\User\Desktop\{}.xlsx'.format(month))
+
+# 按拆分条件分别保存到“拆分表”的各个sheet中
+#除了贴上，还需要汇总到一个Dateframe里
+dfup_split=pd.DataFrame()
+
+#回圈拆分
+for jg in up_list:
+   
+    x = dfup[dfup['关联活动'] == jg]
+   
+    if jg == "a" or jg == "b":
+        
+        if jg == "a":
+            x = pd.merge(x,d38,left_on="账号",right_on="账号",how = "left")
+            
+        else:
+            x = pd.merge(x,d50,left_on="账号",right_on="账号",how = "left")
+            
+        x.insert(2,"金额1",x["查询金额"])
+        x.drop(["no1","查询金额"], axis = 1, inplace = True)
+
+    elif jg == "c":
+        x = pd.merge(x, dfcon,left_on="账号",right_on="账号",how = "left")
+        x.insert(2,"金额1",x["查询金额"])
+        x.insert(3,"百分比",x["备注"])
+        x.drop(["no1","备注","查询金额"], axis = 1, inplace = True)
+        
+    elif jg == "礼":
+        x.drop(["备注"], axis = 1, inplace = True)
+        
+    elif jg == "VIP1" or jg == "VIP2" or jg == "d":
+        #筛出重复值到err资料集
+        #若重复账号笔数不等于0
+        if len(x[x.duplicated(["账号"])]) != 0:       
+            repeat = repeat.append(x[x.duplicated(["账号"],keep = False)],ignore_index=True)
+            
+    else:
+        x.drop(["层级"], axis = 1, inplace = True)
+
+    x["账号"] = "'" + x["账号"]
+    
+    #读取分页         
+    sheet = wb.sheets[jg]
+    
+    #获取分页最后一列
+    tt = sheet.range(1,2).expand().shape[0]   
+    
+    #贴上     
+    sheet.range(f"A{tt+1}").options(index=False,header=False).value = x
+    
+    #新增至Dateframe
+    dfup_split = dfup_split.append(x,ignore_index=True)       
+
+#拆分:
+#先去除栏位
+dfdn.drop(["层级"], axis = 1, inplace = True)
+
+#建立名称清单
+dn_list = ["^a", "^b", "^c", "^d", "^e|^f", "g"]
+
+#计算拆分的笔数
+ct = 0
+dn_detail=pd.DataFrame()
+
+# 按拆分条件分别保存到“拆分表”的各个sheet中
+for jg1 in dn_list:
+    y = dfdn.loc[dfdn["备注"].str.contains(jg1, regex = True)]
+    
+    #此活动没有记录，直接进行下一圈，后面不执行
+    if len(y) == 0:
+        continue
+        
+    #累计拆分笔数
+    ct += len(y)
+    
+    if jg1 == "^a":
+        y["活动"] = jg1[1:] + ""
+        shtname = jg1[1:] + ""
+        
+    elif jg1 == "^e|^f":
+        y["关联活动"] = "yo"
+        shtname = "yo"
+        
+    elif jg1 == "g":
+        y.insert(2,"产生日期",None)
+        y.insert(3,"平台",None)
+        y.loc[y["备注"].str.contains("haha", regex = True),"活动"] = "hahago"
+        y.loc[y["备注"].str.contains("cc", regex = True),"活动"] = "ccgo"
+        shtname = "go"    
+        
+    else:
+        y["活动"] = jg1[1:] + ""
+        shtname = jg1[1:] 
+        
+    y["账号"] = "'" + y["账号"]
+    
+    #读取分页         
+    sheet = wb.sheets[shtname]
+    
+    #获取分页最后一列
+    tt = sheet.range(1,2).expand().shape[0]   
+    
+    #贴上     
+    sheet.range(f"A{tt+1}").options(index=False,header=False).value = y   
+    
+    #新增至Dateframe
+    dn_detail = dn_detail.append(y,ignore_index=True)
+    
+#明细
+#去除多余栏位
+#若兰位名称找不到，则执行except
+try:
+    dn_detail.drop(["a","new1","new2"], axis = 1, inplace = True)
+except:
+    dn_detail.drop(["a"], axis = 1, inplace = True)
+
+#合并明细
+dfdetail = pd.concat([dfup_detail,dn_detail],axis=0)
+
+#固定栏位资料形态
+dfdetail["账号"] = dfdetail["账号"].astype(str)
+
+#读取分页         
+sheet = wb.sheets["明细"]
+
+#获取分页最后一列
+tt = sheet.range(1,1).expand().shape[0]   
+
+#贴上     
+sheet.range(f"A{tt+1}").options(index=False,header=False).value = dfdetail   
+
+
+#复查错误
+#新建工作簿
+wb4 = pd.ExcelWriter(r"C:\Users\User\Desktop\重复&扣回.xlsx")       
+                
+#重复列筛选
+if len(df[df.duplicated(["a","b","c"])]) != 0:
+    repeat = repeat.append(df[df.duplicated(["a","b","c"],keep = False)],ignore_index=True)
+    #显示红色字体
+    print("\033[1;31m 注意重复\033[0m")
+    #填写至Sheet
+    repeat.to_excel(wb4, index = False, sheet_name = "重复")
+
+#查看差额
+error = df.copy()
+#去除备注为nan
+error = df[~df["备注"].isna()]
+error["备注"] = error["备注"].astype(str)
+error = error.loc[error["备注"].str.contains("差额|补", regex = True)]
+if len(error) != 0:
+    print("\033[1;31m 差额\033[0m")            
+    error.to_excel(wb4, index = False, sheet_name = "扣回明细")
+    
+#储存    
+wb4.save()
+
+#判断拆分
+if len(dfdn) == ct:
+    print("\033[1;31m 拆分正确\033[0m")
+    print(f"活动笔数:{upct}")
+    print(f"活动金额:{upmy}")
+
+elif len(dfdn) > ct:
+    print("\033[1;31m 遗漏or未关联\033[0m")
+    
+else:
+    print("\033[1;31m 同条件重复出现\033[0m")
+    
+print(f"总笔数:{allct}")
+print(f"总金额:{allmy}")
+print("PS.若报表金额>显示金额，注意是否重复vlookup")
+
+
+#Market
+#新建工作簿
+mkxlsx = pd.ExcelWriter(r"C:\Users\User\Desktop\{}.xlsx".format(ynote))
+
+#pass
+#(other)读进来
+fclist=["a","b","c"]
+fc = pd.DataFrame()
+for i in fclist:
+    fc = fc.append(dfup_split[dfup_split["活动"]==i],ignore_index=True)
+
+#复制活动资料集并去除重复other
+dfmk = dfup.copy()
+dfmk["账号"] = "'" + dfmk["账号"]
+
+for i in fclist:
+    #抓出符合条件之index再删除
+    dfmk.drop(dfmk[dfmk["关联活动"] == i].index, inplace = True)
+    
+#合并 
+dfmk = pd.concat([fc,dfmk],axis= 0,ignore_index=True)
+dfmk.insert(3,"",None)
+
+#排序&筛选栏位
+dfmk = dfmk[["ㄏ","ㄎ","ㄑ","ㄆ","ㄇ","ㄕ","ㄎ","ㄈ"]]
+
+#ccpass
+#合并
+eb=pd.DataFrame(columns=["a","b","c","d"])
+if "{}.xlsx".format(month) in os.listdir(phpath):
+    eb = eb.append(pd.read_excel(phpath+r"\{}.xlsx".format(month), usecols=[1,5,7,9],converters={'账号': str}))
+if "{}单.xlsx".format(month) in os.listdir(twpath):                                                            #修改栏位名称
+    eb = eb.append(pd.read_excel(twpath+r"\{}.xlsx".format(month), usecols=[1,6,8,10],converters={'账号': str},names=["e","f","g","h"]))
+
+#删除空列(时间为空值)    
+eb.dropna(axis = 0,subset=(["时间"]),inplace = True)
+
+#栏位重新命名
+eb.rename(columns = {"总":"有效"},inplace=True)
+
+#转时间形态&筛选昨日
+#重置索引
+eb.reset_index(drop=True,inplace=True)
+eb['时间'] = pd.to_datetime(eb['时间'])
+eb = eb[(eb["时间"] >= yyday) & (eb["时间"] <= nyday)]
+
+#账号加上"'"
+eb["账号"] = "''"+ eb["账号"]
+
+#栏位顺序
+eb.insert(0,"活动","eb")
+eb.insert(4,"金额",None)
+eb.columns = ["a","b","c","d","e","f"]
+
+#合并dfmk&eb
+dfmk_ps = pd.concat([dfmk,eb],axis= 0,ignore_index=True)
+dfmk_ps["账号"] = dfmk_ps["账号"].apply(lambda x:x[1:])
+
+#汇出策划通过
+dfmk_ps.to_excel(mkxlsx, index = False,sheet_name = "通过")
+
+
+#reject
+#先建立空的dataframe
+rj38 = pd.DataFrame()
+if "{}.xlsx".format(month) in os.listdir(phpath):
+   rj38 = rj38.append(pd.read_excel(phpath+r"\{}.xlsx".format(month),sheet_name="未通过",usecols=[0,1,3,6,7,9],converters={'会员账号': str}))
+if "{}月份.xlsx".format(month) in os.listdir(twpath):
+   rj38 = rj38.append(pd.read_excel(twpath+r"\{}.xlsx".format(month),sheet_name="未通过",usecols=[0,1,3,6,7,9],converters={'会员账号': str}))
+   
+#重置索引
+rj38.reset_index(drop=True,inplace=True)
+
+#修正错误
+rjcon.loc[61:74,"时间"] = "2020-11-03 08:00:00"
+
+rjcon["类型"] = "con"
+
+#复制栏
+rjcon["备注"] = rjcon["原因"]
+
+rjcon.rename(columns={"时间":"拒绝时间"},inplace=True)
+
+#rjeb
+#合并PH、TW充电宝
+rjeb=pd.DataFrame(columns=["a","b","c","d","e"])
+if "{}.xlsx".format(month) in os.listdir(phpath):
+    rjeb = rjeb.append(pd.read_excel(phpath+r"\{}.xlsx".format(month),sheet_name="未通过",usecols=[0,4,6,7,8],converters={'账号': str},names=["a","b","c","d","e"]))
+if "{}.xlsx".format(month) in os.listdir(twpath):
+    rjeb = rjeb.append(pd.read_excel(twpath+r"\{}.xlsx".format(month),sheet_name="未通过",usecols=[0,5,7,8,10],converters={'账号': str},names=["a","b","c","d","e"]))
+
+rjeb["备注"] = rjeb["原因"]
+rjeb["优惠类型"] = "rjeb"
+rjeb.rename(columns={"账号":"会员账号"},inplace=True)
+
+#合并rjeb&rj
+rjfceb= pd.concat([rj38,rj50,rjcon,rjeb],axis=0).reset_index(drop=True)
+rjfceb.dropna(axis = 0,subset=(["时间"]),inplace = True)
+rjfceb['时间'] = pd.to_datetime(rjfceb['时间'])
+rjfceb = rjfceb[(rjfceb["时间"] >= yyday) & (rjfceb["时间"] <= nyday)] 
+
+#汇出rj
+#开启market
+wb_mk = xw.Book(r'C:\Users\User\Desktop\{}.{}.xlsx'.format(month,day))
+
+#读取分页         
+sheet = wb_mk.sheets["Sheet3"]
+
+#获取最后一列
+tt_ps = sheet.range(1,2).expand().shape[0]
+tt_rj = sheet.range(1,12).expand().shape[0]
+
+#清除内容保留格式
+sheet.range(f"B2:I{tt_ps+1}").clear_contents()
+sheet.range(f"L2:T{tt_rj+1}").clear_contents() 
+
+#贴上     
+sheet.range("L2").options(index=False,header=False).value = dfmk_rj  
+
+#储存
+mkxlsx.save() 
+
+'''
+#获取分页最后一列
+last_column = sheet.range(1,2).end('right').get_address(0,0) 
+last_column = re.sub("[0-9]", "", last_column) # 获取最后一列
+last_row = sheet.range(1,2).end('down').row # 获取最后一行
+'''
